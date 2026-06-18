@@ -1,0 +1,23 @@
+# 카페 키오스크 원본 이미지
+*.jpg
+*.jpeg
+*.png
+
+# YOLO 모델 가중치
+*.pt
+*.weights
+*.onnx
+
+# 파이썬 시스템
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 에디터
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+EOF
