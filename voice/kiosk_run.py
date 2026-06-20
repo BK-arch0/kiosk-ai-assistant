@@ -1,0 +1,61 @@
+# -*- coding: utf-8 -*-
+import cv2, numpy as np, onnxruntime as ort
+import kiosk_guide_1   # 네가 만든 TTS 엔진 (같은 폴더)
+
+# ====== 설정 ======
+ONNX_FILE = "yolov5_kiosk.onnx"
+INPUT_SIZE = 640
+
+# ★ data.yaml 의 names 순서 그대로 (알파벳순, 9개)
+CLASS_NAMES = [
+    "cancel_button",     # 0
+    "category_tab",      # 1
+    "dine_option",       # 2
+    "membership_button", # 3
+    "menu_item",         # 4 
+    "nav_arrow",         # 5
+    "option_button",     # 6
+    "pay_button",        # 7
+    "payment_method",    # 8
+]
+CONF_TH, IOU_TH = 0.4, 0.45
+# ==================
+
+sess = ort.InferenceSession(ONNX_FILE, providers=["CPUExecutionProvider"])
+inp = sess.get_inputs()[0].name
+
+def detect(img):
+    h0, w0 = img.shape[:2]
+    blob = cv2.resize(img, (INPUT_SIZE, INPUT_SIZE))[:, :, ::-1].transpose(2,0,1)
+    blob = np.ascontiguousarray(blob, np.float32)[None] / 255.0
+    pred = sess.run(None, {inp: blob})[0][0]   # (25200, 14)
+
+    obj = pred[:,4]; cls = pred[:,5:]
+    cid = cls.argmax(1); conf = obj * cls[np.arange(len(cls)), cid]
+    m = conf > CONF_TH
+    pred, conf, cid = pred[m], conf[m], cid[m]
+    if len(pred) == 0: return []
+
+    cx,cy,w,h = pred[:,0],pred[:,1],pred[:,2],pred[:,3]
+    x1=(cx-w/2)/INPUT_SIZE*w0; y1=(cy-h/2)/INPUT_SIZE*h0
+    x2=(cx+w/2)/INPUT_SIZE*w0; y2=(cy+h/2)/INPUT_SIZE*h0
+
+    idx = cv2.dnn.NMSBoxes(
+        np.stack([x1,y1,x2-x1,y2-y1],1).tolist(), conf.tolist(), CONF_TH, IOU_TH)
+    out = []
+    for i in np.array(idx).flatten():
+        out.append({"class": CLASS_NAMES[cid[i]],
+                    "box": [float(x1[i]),float(y1[i]),float(x2[i]),float(y2[i])],
+                    "conf": float(conf[i])})
+    return out
+
+if __name__ == "__main__":
+    img = cv2.imread("test.png")   # 키오스크 사진 한 장을 aid 폴더에 넣고
+    if img is None:
+        print("test.jpg 를 aid 폴더에 넣어주세요.")
+    else:
+        H, W = img.shape[:2]
+        dets = detect(img)
+        print("탐지 결과:", dets)
+        kiosk_guide_1.reset_guide()
+        kiosk_guide_1.guide_once(dets, W, H)
