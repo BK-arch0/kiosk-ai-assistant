@@ -1,9 +1,9 @@
-dine_option
+cancel_button
 category_tab
+dine_option
+membership_button
+menu_item
 nav_arrow
 option_button
-menu_item
 pay_button
-cancel_button
-membership_buttton
 payment_method
