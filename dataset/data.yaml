@@ -1,0 +1,20 @@
+names:
+- cancel_button
+- category_tab
+- dine_option
+- membership_button
+- menu_item
+- nav_arrow
+- option_button
+- pay_button
+- payment_method
+nc: 9
+roboflow:
+  license: CC BY 4.0
+  project: dataset-zi9zo
+  url: https://universe.roboflow.com/s-workspace-wdhuq/dataset-zi9zo/dataset/3
+  version: 3
+  workspace: s-workspace-wdhuq
+test: test/images
+train: train/images
+val: valid/images
