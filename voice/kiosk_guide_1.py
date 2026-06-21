@@ -1,127 +1,64 @@
 # -*- coding: utf-8 -*-
 """
-키오스크 안내 음성(TTS) 로직 - 가짜 데이터 버전
-======================================================
-A.I.D 팀 / 키오스크 이용 보조 서비스
-
-[이 파일이 하는 일]
-- YOLO 모델이 화면에서 버튼을 찾아 결과를 주면(아직 모델이 없으니 '가짜 데이터'로 흉내),
-  그 결과를 보고 "지금 어느 화면인지" 판단하고, 상황에 맞는 안내 멘트를 만든다.
-- 멘트는 우선 print로 확인하고, 맨 아래에서 TTS(음성)로 내보내는 부분을 켜면 실제로 소리가 난다.
-
-[나중에 할 일]
-- 아래 MOCK_RESULTS(가짜 데이터) 자리에 박보경 님 YOLO 모델의 진짜 출력을 끼우면 그대로 작동한다.
-- 즉, 모델 없이 지금 로직을 완성해두고, 모델이 나오면 데이터만 바꿔치기한다.
+키오스크 안내 음성(TTS) 로직
 """
 
+# 음성 출력
+import os
+try:
+    from gtts import gTTS
+except ImportError:
+    gTTS = None
 
-# =====================================================================
-# 0. 모델 출력 형식
-# ---------------------------------------------------------------------
-# YOLO 모델은 화면에서 찾은 버튼들을 아래와 같은 형식의 리스트로 준다고 약속한다.
-#
-#   detections = [
-#       {"class": "pay_button", "box": [x1, y1, x2, y2], "conf": 0.92},
-#       {"class": "cancel_button", "box": [x1, y1, x2, y2], "conf": 0.88},
-#       ...
-#   ]
-#
-#   - class : 버튼 종류 (우리가 정한 클래스 8개 중 하나)
-#   - box   : [좌상단 x, 좌상단 y, 우하단 x, 우하단 y]  (픽셀 좌표)
-#   - conf  : 모델의 확신도 (0~1). 낮으면 잘못 찾았을 수 있음.
-#
-# 화면 크기(W, H)도 함께 받는다. (스마트폰 카메라 해상도)
-# =====================================================================
-
-# 우리가 라벨링하는 클래스 8개 (명세 기준)
-CLASSES = [
-    "dine_option",       # 포장/매장 선택
-    "category_tab",      # 카테고리 탭 (커피/논커피/스무디 등) - 개별
-    "nav_arrow",         # 화면 넘기기 화살표
-    "option_button",     # 옵션 (사이즈/온도/샷추가 등) - 묶음
-    "pay_button",        # 결제 버튼
-    "cancel_button",     # 삭제 버튼 (개별X/전체삭제 묶음)
-    "membership_button", # 멤버십 적립
-    "payment_method",    # 결제 방법 (카드/페이 등) - 묶음
-]
-
-# 확신도가 이 값보다 낮은 탐지는 무시한다 (오탐 방지). 나중에 조정 가능.
+# 확신도가 이 값보다 낮은 탐지는 무시한다 (오탐 방지)
 CONF_THRESHOLD = 0.4
-
-# 음성(TTS)을 실제로 켤지 여부.
-#  - False : 글자만 출력 (조용함, 여러 상황 한꺼번에 확인할 때 좋음)
-#  - True  : 실제 음성 재생 (gTTS 필요, 인터넷 필요)
-USE_TTS = False
+# 음성(TTS) 여부
+USE_TTS = True
+_last_screen = None
 
 
-# =====================================================================
-# 1. 좌표 → 위치 표현 도우미 함수
-# ---------------------------------------------------------------------
-# 모델이 준 박스 좌표를 보고 "상단/하단", "왼쪽/오른쪽" 같은
-# 사람이 알아듣는 위치 표현으로 바꿔준다.
-# =====================================================================
+# 모델이 준 박스 좌표를 보고 사람이 알아듣는 위치 표현으로 바꿔준다.
 
 def box_center(box):
     """박스의 중심점 (cx, cy)을 계산한다."""
     x1, y1, x2, y2 = box
-    cx = (x1 + x2) / 2
-    cy = (y1 + y2) / 2
-    return cx, cy
-
+    return (x1 + x2) / 2, (y1 + y2) / 2
 
 def vertical_position(box, H):
     """박스가 화면의 위/가운데/아래 중 어디에 있는지 글자로 돌려준다."""
     _, cy = box_center(box)
-    if cy < H * 0.33:
-        return "상단"
-    elif cy > H * 0.66:
-        return "하단"
-    else:
-        return "가운데"
-
+    if cy < H * 0.33: return "상단"
+    elif cy > H * 0.66: return "하단"
+    else: return "가운데"
 
 def horizontal_position(box, W):
     """박스가 화면의 왼쪽/가운데/오른쪽 중 어디에 있는지 글자로 돌려준다."""
     cx, _ = box_center(box)
-    if cx < W * 0.33:
-        return "왼쪽"
-    elif cx > W * 0.66:
-        return "오른쪽"
-    else:
-        return "가운데"
+    if cx < W * 0.33: return "왼쪽"
+    elif cx > W * 0.66: return "오른쪽"
+    else: return "가운데"
 
 
-# =====================================================================
-# 2. 탐지 결과에서 원하는 클래스만 골라내는 도우미
-# =====================================================================
+# 탐지 결과에서 원하는 클래스만 골라낸다.
 
 def filter_by_conf(detections):
     """확신도가 기준 이상인 것만 남긴다."""
     return [d for d in detections if d.get("conf", 1.0) >= CONF_THRESHOLD]
 
-
 def get_by_class(detections, class_name):
     """특정 클래스의 탐지들만 리스트로 돌려준다. (없으면 빈 리스트)"""
     return [d for d in detections if d["class"] == class_name]
-
 
 def has_class(detections, class_name):
     """특정 클래스가 화면에 있는지 True/False로 돌려준다."""
     return len(get_by_class(detections, class_name)) > 0
 
 
-# =====================================================================
-# 3. 화면 단계 판단
-# =====================================================================
-# 4. 화면별 안내 멘트 생성
-# ---------------------------------------------------------------------
-# 각 버튼 종류마다 멘트를 만든다. detections와 화면크기(W,H)를 받는다.
-# =====================================================================
+# 안내 멘트를 생성한다.
 
 def guide_dine(detections, W, H):
     """1. 포장/매장 선택 화면"""
     return "가져가실 거면 포장, 카페에서 드실 거면 매장을 눌러주세요."
-
 
 def guide_category(detections, W, H):
     """카테고리 선택 안내 (화살표는 make_guidance에서 따로 처리)"""
@@ -132,71 +69,46 @@ def guide_category(detections, W, H):
     if tabs:
         # 여러 탭의 평균 위치로 상단/하단 판단
         avg_cy = sum(box_center(t["box"])[1] for t in tabs) / len(tabs)
-        if avg_cy < H * 0.3:
-            msg += "카테고리는 화면 상단에 있어요."
-        elif avg_cy > H * 0.7:
-            msg += "카테고리는 화면 하단에 있어요."
-
+        if avg_cy < H * 0.3: msg += "카테고리는 화면 상단에 있어요."
+        elif avg_cy > H * 0.7: msg += "카테고리는 화면 하단에 있어요."
     return msg
-
 
 def guide_nav_arrow(detections, W, H):
     """2-2. 화면 넘기기 화살표 안내. (카테고리/메뉴 화면에서 호출됨)"""
     arrows = get_by_class(detections, "nav_arrow")
-
-    # 화살표가 없으면 아무 안내도 하지 않음 (다음 화면이 없을 수도 있으므로)
-    if not arrows:
-        return ""
-
-    # 화살표가 있으면 첫 번째 화살표 위치로 안내
-    box = arrows[0]["box"]
-    cx, cy = box_center(box)
-
-    if cx < W * 0.15:
-        return "화면 왼쪽의 화살표를 누르면 이전 메뉴로 갈 수 있어요. "
-    elif cx > W * 0.85:
-        return "화면 오른쪽의 화살표를 누르면 다음 메뉴로 갈 수 있어요. "
-    elif cy > H * 0.8:
-        return "화면 아래쪽의 화살표를 누르면 메뉴를 더 볼 수 있어요. "
-    else:
-        return "화살표를 누르면 다음 화면으로 넘어갈 수 있어요. "
-
+    if not arrows: return ""
+    cx, cy = box_center(arrows[0]["box"])
+    if cx < W * 0.15: return "화면 왼쪽의 화살표를 누르면 이전 메뉴로 갈 수 있어요. "
+    elif cx > W * 0.85: return "화면 오른쪽의 화살표를 누르면 다음 메뉴로 갈 수 있어요. "
+    elif cy > H * 0.8: return "화면 아래쪽의 화살표를 누르면 메뉴를 더 볼 수 있어요. "
+    else: return "화살표를 누르면 다음 화면으로 넘어갈 수 있어요. "
 
 def guide_option(detections, W, H):
     """2-3. 옵션(사이즈/온도) 선택 화면"""
-    return ("사이즈와 온도를 선택해주세요. "
-            "차갑게 드시려면 아이스, 따뜻하게 드시려면 핫을 눌러주세요.")
-
+    return ("사이즈와 온도를 선택해주세요. 차갑게 드시려면 아이스, 따뜻하게 드시려면 핫을 눌러주세요.")
 
 def guide_pay(detections, W, H):
     """결제 버튼 안내"""
     pays = get_by_class(detections, "pay_button")
-    if not pays:
-        return ""
+    if not pays: return ""
     pos = vertical_position(pays[0]["box"], H)
     return f"이대로 결제하시려면 화면 {pos}의 주문하기 버튼을 눌러주세요."
-
 
 def guide_cancel(detections, W, H):
     """삭제(취소) 버튼 안내"""
     cancels = get_by_class(detections, "cancel_button")
-    if not cancels:
-        return ""
+    if not cancels: return ""
     pos = vertical_position(cancels[0]["box"], H)
     return (f"메뉴를 삭제하시려면 담은 메뉴 옆의 X 버튼을 누르시거나, "
             f"화면 {pos}의 전체 삭제 버튼을 눌러주세요.")
 
-
 def guide_membership(detections, W, H):
     """3. 멤버십 적립 화면"""
-    return ("멤버십을 적립하시려면 전화번호를 입력해주세요. "
-            "적립하지 않으시려면 적립 안 함을 눌러주세요.")
-
+    return ("멤버십을 적립하시려면 전화번호를 입력해주세요. 적립하지 않으시려면 적립 안 함을 눌러주세요.")
 
 def guide_payment(detections, W, H):
     """4. 결제 방법 선택 화면"""
     return "결제 방법을 선택해주세요. 카드 또는 간편결제 중에서 고르시면 됩니다."
-
 
 def make_guidance(detections, W, H):
     """
@@ -266,64 +178,21 @@ def make_guidance(detections, W, H):
     return signature, text
 
 
-# =====================================================================
-# 5. TTS(음성 출력) - 지금은 꺼두고, 준비되면 켠다
-# ---------------------------------------------------------------------
-# 멘트(문자열)를 실제 음성으로 내보내는 부분.
-# 두 가지 방법 중 하나를 쓰면 된다. (자세한 설치법은 파일 맨 아래 주석 참고)
-# =====================================================================
+# TTS(음성 출력) 
 
 def speak(text):
-    """
-    멘트를 음성으로 내보낸다.
-    지금은 print만 한다. 아래 주석을 풀면 실제로 소리가 난다.
-    """
     print(f"[음성출력] {text}")
-
-    # USE_TTS 가 True 이면 실제 음성을 내보낸다. (테스트 중엔 False 로 두면 조용함)
-    if not USE_TTS:
-        return
-    
-    # 텍스트가 비어 있으면 음성 생성을 건너뛴다 (gTTS는 빈 텍스트에서 에러남)
-    if not text or not text.strip():
-        return
-
-    # --- 방법 A: gTTS (구글, 한국어 자연스러움, 인터넷 필요) ---
-    from gtts import gTTS
-    import os
+    if not USE_TTS or not text or not text.strip(): return
     tts = gTTS(text=text, lang="ko")
     tts.save("guide.mp3")
-    os.system("start guide.mp3")     # 윈도우 (기본 플레이어로 mp3 재생)
-    # os.system("afplay guide.mp3")  # 맥
-    # os.system("mpg123 guide.mp3")  # 리눅스
-
-    # --- 방법 B: pyttsx3 (오프라인, 인터넷 불필요) ---
-    # 위 gTTS 대신 이걸 쓰려면 위 gTTS 부분을 주석 처리하고 아래 주석을 풀면 됨.
-    # import pyttsx3
-    # engine = pyttsx3.init()
-    # engine.say(text)
-    # engine.runAndWait()
+    os.system("start guide.mp3") # Mac은 afplay, Linux는 mpg123 사용
 
 
 # =====================================================================
 # 5-2. 반복 방지 
-# ---------------------------------------------------------------------
-# 카메라는 1초에도 같은 화면을 수십 번 비추므로
-# "화면이 바뀌었을 때만" 새로 안내하도록 한다.
-# =====================================================================
-
-# 직전에 안내했던 화면 단계를 기억해 둔다. (처음엔 아무것도 없음)
-_last_screen = None
-
+# 화면이 바뀌었을 때만 새로 안내한다.
 
 def guide_once(detections, W, H):
-    """
-    화면이 직전과 '달라졌을 때만' 음성으로 안내한다.
-    같은 화면이 계속 들어오면 조용히 넘어간다.
-
-    실전에서는 카메라 프레임마다 이 함수를 계속 호출하면 된다.
-    그러면 사용자가 다음 화면으로 넘어갈 때만 새 멘트가 나간다.
-    """
     global _last_screen
 
     screen, text = make_guidance(detections, W, H)

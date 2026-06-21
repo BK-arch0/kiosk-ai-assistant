@@ -1,18 +1,22 @@
 # -*- coding: utf-8 -*-
 # 여러 키오스크 사진을 순서대로 보여주며 안내 (시연용)
+import sys, os
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.getcwd())
+
 import cv2, time
-import kiosk_guide_1
-from kiosk_run import detect   # 기존 detect() 재활용
+from voice.kiosk_guide_1 import reset_guide, guide_once
+from vision.kiosk_run import detect
 
 # 시연할 사진
 DEMO_IMAGES = [
-    "demo1.png",   # 포장/매장 화면
-    "demo2.png",   # 카테고리 화면
-    "demo3.png",   # 옵션 화면
-    "demo4.png",   # 결제 화면
+    "images/demo1.jpg",   # 포장/매장 화면
+    "images/demo2.jpg",   # 카테고리 화면
+    "images/demo3.jpeg",   # 옵션 화면
+    "images/demo4.jpeg",   # 결제 화면
 ]
 
-kiosk_guide_1.reset_guide()
+reset_guide()
 
 for path in DEMO_IMAGES:
     img = cv2.imread(path)
@@ -24,7 +28,7 @@ for path in DEMO_IMAGES:
     dets = detect(img)
     print("\n" + "=" * 50)
     print(f"[화면] {path}")
-    kiosk_guide_1.guide_once(dets, W, H)   # 음성 안내
+    guide_once(dets, W, H)
 
     # 화면도 같이 띄워서 보여주기 (아무 키나 누르면 다음 사진)
     target_h = 600
