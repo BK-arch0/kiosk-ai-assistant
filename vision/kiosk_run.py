@@ -1,23 +1,11 @@
 # -*- coding: utf-8 -*-
 import cv2, numpy as np, onnxruntime as ort
-import kiosk_guide_1   # 네가 만든 TTS 엔진 (같은 폴더)
 
 # ====== 설정 ======
 ONNX_FILE = "yolov5_kiosk.onnx"
 INPUT_SIZE = 640
 
-# ★ data.yaml 의 names 순서 그대로 (알파벳순, 9개)
-CLASS_NAMES = [
-    "cancel_button",     # 0
-    "category_tab",      # 1
-    "dine_option",       # 2
-    "membership_button", # 3
-    "menu_item",         # 4 
-    "nav_arrow",         # 5
-    "option_button",     # 6
-    "pay_button",        # 7
-    "payment_method",    # 8
-]
+from dataset.classes import CLASS_NAMES
 CONF_TH, IOU_TH = 0.4, 0.45
 # ==================
 
@@ -57,5 +45,6 @@ if __name__ == "__main__":
         H, W = img.shape[:2]
         dets = detect(img)
         print("탐지 결과:", dets)
-        kiosk_guide_1.reset_guide()
-        kiosk_guide_1.guide_once(dets, W, H)
+        from voice.kiosk_guide_1 import reset_guide, guide_once
+        reset_guide()
+        guide_once(dets, W, H)

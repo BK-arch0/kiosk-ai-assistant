@@ -8,6 +8,9 @@
 *.weights
 *.onnx
 
+# TTS 생성 임시 오디오 파일
+guide.mp3
+
 # 파이썬 시스템
 __pycache__/
 *.py[cod]
