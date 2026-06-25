@@ -27,17 +27,16 @@
 
 ```
 ai-kiosk-assistant/
-├── yolov5_kiosk.onnx         # 학습된 YOLO 모델 (ONNX 변환본)
 ├── dataset/
 │   ├── classes.txt           # 데이터 클래스 목록
 │   └── data.yaml             # YOLOv5 학습 설정 파일
-├── integration/              # 시스템 통합 모듈
 ├── vision/                   # 비전 인식 모듈
 │   └── yolo_detector.py      # YOLOv5 ONNX 객체 탐지
-│   ├── ocr_processor.py      # OCR 기반 텍스트 추출 및 처리
 ├── voice/                    # 음성 안내 모듈
-├── tests/                    # 테스트 모듈 (작동 확인용)
-│   ├── test_run.py           # yolo_detector 개별 검증용 테스트 코드
+│   ├── kiosk_run_demo.py         # ★ 데모 실행 파일 (저장된 데모 사진으로 동작 시연)
+│   ├── kiosk_run.py              # 실시간 실행 파일 (카메라/실제 입력 연결용)
+│   ├── kiosk_guide_1.py          # 음성 안내 모듈 본체 (멘트 생성 + gTTS)
+│   └── README.md
 ├── .gitignore
 └── README.md                 # 본 문서
 ```
